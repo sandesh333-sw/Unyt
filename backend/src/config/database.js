@@ -1,25 +1,33 @@
-import mongoose, { connect } from "mongoose";
-import logger from "../utils/logger.js";
+const mongoose = require('mongoose');
 
-const connectDB = async() => {
-    try {
+const connectDB = async () => {
+  try {
+    const conn = await mongoose.connect(process.env.MONGODB_URI, {
+      maxPoolSize: parseInt(process.env.MAX_POOL_SIZE) || 20,
+      minPoolSize: 5,
+      socketTimeoutMS: 45000,
+      serverSelectionTimeoutMS: 5000,
+    });
 
-        await mongoose.connect(process.env.MONGO_URI, {
-            maxPoolSize: 20,
-            serverSelectionTimeoutMS: 5000,
-        })
-        
-    } catch (err) {
-        logger.error("MongoDB connection failed", err);
-        process.exit(1);
-    }
+    console.log(`MongoDB Connected: ${conn.connection.host}`);
+    
+    // Monitor connection pool
+    mongoose.connection.on('connected', () => {
+      console.log('Mongoose connected to MongoDB');
+    });
+    
+    mongoose.connection.on('error', (err) => {
+      console.error('Mongoose connection error:', err);
+    });
+    
+    mongoose.connection.on('disconnected', () => {
+      console.log('Mongoose disconnected');
+    });
+
+  } catch (error) {
+    console.error(`Error: ${error.message}`);
+    process.exit(1);
+  }
 };
 
-//Health check
-
-const checkDB = async () => {
-    const state = mongoose.connect.readyState;
-    return state === 1;
-};
-
-module.exports = { connectDB, checkDB };
+module.exports = connectDB;
