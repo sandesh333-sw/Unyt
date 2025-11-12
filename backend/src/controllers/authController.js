@@ -18,7 +18,7 @@ const generateTokens = (userId) => {
 };
 
 //Register
-export const register = async (req, res) => {
+const register = async (req, res) => {
   try {
     requireEnvs();
     const { email, password, firstName, lastName, isInternational, country, arrivalDate } = req.body;
@@ -64,7 +64,7 @@ export const register = async (req, res) => {
 };
 
 //Login
-export const login = async (req, res) => {
+const login = async (req, res) => {
   try {
     requireEnvs();
     const { email, password } = req.body;
@@ -102,7 +102,7 @@ export const login = async (req, res) => {
 };
 
 //Refresh token
-export const refreshToken = async (req, res) => {
+const refreshToken = async (req, res) => {
   try {
     requireEnvs();
     const { refreshToken } = req.body;
@@ -143,7 +143,7 @@ export const refreshToken = async (req, res) => {
 };
 
 // ---- Logout ----
-export const logout = async (req, res) => {
+const logout = async (req, res) => {
   try {
     const { refreshToken } = req.body;
     if (!refreshToken) return res.status(400).json({ error: 'Refresh token required' });
@@ -167,7 +167,7 @@ export const logout = async (req, res) => {
 };
 
 // ---- Get profile ----
-export const getProfile = async (req, res) => {
+const getProfile = async (req, res) => {
   try {
     const user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
@@ -183,3 +183,5 @@ export const getProfile = async (req, res) => {
     return res.status(400).json({ error: error.message });
   }
 };
+
+export default { register, login, refreshToken, logout, getProfile };

@@ -5,7 +5,7 @@ import cors from 'cors';
 // import compression from 'compression';
 import connectDB from './src/config/database.js';
 
-//import authRoutes from './src/routes/auth.js';
+import authRoutes from './src/routes/auth.js';
 //import listingsRoutes from './src/routes/listings.js';
 
 const app = express();
@@ -36,7 +36,7 @@ app.use(express.urlencoded({ extended: true }));
 app.set('trust proxy', 1);
 
 // Routes
-//app.use('/api/auth', authRoutes);
+app.use('/api/auth', authRoutes);
 //app.use('/api/listings', listingsRoutes);
 
 // Health check
@@ -83,3 +83,10 @@ process.on('SIGTERM', () => {
   console.log('👋 SIGTERM received. Shutting down gracefully...');
   server.close(() => process.exit(0));
 });
+
+
+// docker run -d \
+//   --name mongo \
+//   -p 27017:27017 \
+//   -v mongo-data:/data/db \
+//   mongo:7
