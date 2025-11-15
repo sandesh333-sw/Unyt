@@ -30,7 +30,7 @@ const rateLimiter = async ( req, res, next) => {
     } catch (error) {
         res.status(429).json({
             error: 'Too many requests',
-            message: 'Upgrade  t o Premium for higher limits'
+            message: 'Upgrade  to Premium for higher limits'
         });
     }
 };
