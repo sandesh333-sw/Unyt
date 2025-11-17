@@ -1,177 +1,168 @@
-import User from '../models/User.js';
-import jwt from 'jsonwebtoken';
-import crypto from 'crypto';
+const User = require('../models/User');
+const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 
-//Helpers
-const hashRt = (t) => crypto.createHash('sha256').update(t).digest('hex');
-
-const requireEnvs = () => {
-  ['JWT_SECRET','JWT_EXPIRE','JWT_REFRESH_SECRET','JWT_REFRESH_EXPIRE'].forEach(k=>{
-    if(!process.env[k]) throw new Error(`Missing env: ${k}`);
-  });
-};
-
+// Generate tokens
 const generateTokens = (userId) => {
-  const accessToken = jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRE });
-  const refreshToken = jwt.sign({ userId }, process.env.JWT_REFRESH_SECRET, { expiresIn: process.env.JWT_REFRESH_EXPIRE });
+  const accessToken = jwt.sign(
+    { userId },
+    process.env.JWT_SECRET,
+    { expiresIn: process.env.JWT_EXPIRE }
+  );
+  
+  const refreshToken = jwt.sign(
+    { userId },
+    process.env.JWT_REFRESH_SECRET,
+    { expiresIn: process.env.JWT_REFRESH_EXPIRE }
+  );
+  
   return { accessToken, refreshToken };
 };
 
-//Register
-const register = async (req, res) => {
+// Register
+exports.register = async (req, res) => {
   try {
-    requireEnvs();
     const { email, password, firstName, lastName, isInternational, country, arrivalDate } = req.body;
-
-    if (!email || !password || !firstName || !lastName) {
-      return res.status(400).json({ error: 'Missing required fields' });
-    }
-
+    
+    // Check if user exists
     const existingUser = await User.findOne({ email });
-    if (existingUser) return res.status(400).json({ error: 'Email already registered' });
-
+    if (existingUser) {
+      return res.status(400).json({ error: 'Email already registered' });
+    }
+    
+    // Create user
     const user = await User.create({
       email,
       password,
       firstName,
       lastName,
-      profile: { isInternational, country, arrivalDate }
+      profile: {
+        isInternational,
+        country,
+        arrivalDate
+      }
     });
-
+    
+    // Generate tokens
     const { accessToken, refreshToken } = generateTokens(user._id);
-
-    //Store HASH of refresh token inside the same field "token" (no schema change)
-    user.refreshTokens.push({ token: hashRt(refreshToken), createdAt: new Date() });
+    
+    // Store refresh token
+    user.refreshTokens.push({ token: refreshToken });
     await user.save();
-
-    return res.status(201).json({
+    
+    res.status(201).json({
       message: 'Registration successful',
       user: {
         id: user._id,
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
-        tier: user.tier?.plan ?? 'free',
-        limits: user.tier?.limits ?? null,
-        usage: user.tier?.usage ?? null
+        tier: user.tier.plan
       },
       accessToken,
       refreshToken
     });
+    
   } catch (error) {
-    return res.status(400).json({ error: error.message });
+    res.status(400).json({ error: error.message });
   }
 };
 
-//Login
-const login = async (req, res) => {
+// Login
+exports.login = async (req, res) => {
   try {
-    requireEnvs();
     const { email, password } = req.body;
-
+    
+    // Find user and include password
     const user = await User.findOne({ email }).select('+password');
+    
     if (!user || !(await user.comparePassword(password))) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
-
+    
+    // Generate tokens
     const { accessToken, refreshToken } = generateTokens(user._id);
-
-    user.refreshTokens.push({ token: hashRt(refreshToken), createdAt: new Date() });
-    //Lightweight cap to avoid unbounded growth
-    if (user.refreshTokens.length > 10) {
-      user.refreshTokens = user.refreshTokens.slice(-10);
-    }
+    
+    // Store refresh token
+    user.refreshTokens.push({ token: refreshToken });
     await user.save();
-
-    return res.json({
+    
+    res.json({
       user: {
         id: user._id,
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
-        tier: user.tier?.plan ?? 'free',
-        limits: user.tier?.limits ?? null,
-        usage: user.tier?.usage ?? null
+        tier: user.tier.plan,
+        limits: user.tier.limits,
+        usage: user.tier.usage
       },
       accessToken,
       refreshToken
     });
+    
   } catch (error) {
-    return res.status(400).json({ error: error.message });
+    res.status(400).json({ error: error.message });
   }
 };
 
-//Refresh token
-const refreshToken = async (req, res) => {
+// Refresh token
+exports.refreshToken = async (req, res) => {
   try {
-    requireEnvs();
     const { refreshToken } = req.body;
-    if (!refreshToken) return res.status(401).json({ error: 'Refresh token required' });
-
-    let decoded;
-    try {
-      decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
-    } catch (err) {
-      if (err.name === 'TokenExpiredError') return res.status(401).json({ error: 'Refresh token expired' });
+    
+    if (!refreshToken) {
+      return res.status(401).json({ error: 'Refresh token required' });
+    }
+    
+    // Verify refresh token
+    const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+    
+    // Find user and check if token exists
+    const user = await User.findById(decoded.userId);
+    const tokenExists = user.refreshTokens.some(t => t.token === refreshToken);
+    
+    if (!tokenExists) {
       return res.status(401).json({ error: 'Invalid refresh token' });
     }
-
-    const user = await User.findById(decoded.userId);
-    if (!user) return res.status(401).json({ error: 'Invalid refresh token' });
-
-    const incomingHash = hashRt(refreshToken);
-    const tokenExists = user.refreshTokens.some(t => t.token === incomingHash);
-
-    if (!tokenExists) {
-      //imple token reuse guard: clear all sessions (easy + effective)
-      user.refreshTokens = [];
-      await user.save();
-      return res.status(401).json({ error: 'Token reuse detected. Please log in again.' });
-    }
-
-    const { accessToken, refreshToken: newRt } = generateTokens(user._id);
-
-    // rotate: remove old, add new
-    user.refreshTokens = user.refreshTokens.filter(t => t.token !== incomingHash);
-    user.refreshTokens.push({ token: hashRt(newRt), createdAt: new Date() });
+    
+    // Generate new tokens
+    const tokens = generateTokens(user._id);
+    
+    // Replace old refresh token with new one
+    user.refreshTokens = user.refreshTokens.filter(t => t.token !== refreshToken);
+    user.refreshTokens.push({ token: tokens.refreshToken });
     await user.save();
-
-    return res.json({ accessToken, refreshToken: newRt });
+    
+    res.json(tokens);
+    
   } catch (error) {
-    return res.status(401).json({ error: 'Invalid refresh token' });
+    res.status(401).json({ error: 'Invalid refresh token' });
   }
 };
 
-// ---- Logout ----
-const logout = async (req, res) => {
+// Logout
+exports.logout = async (req, res) => {
   try {
     const { refreshToken } = req.body;
-    if (!refreshToken) return res.status(400).json({ error: 'Refresh token required' });
-
     const user = await User.findById(req.userId);
-    if (!user) return res.status(404).json({ error: 'User not found' });
-
-    const before = user.refreshTokens.length;
-    const hash = hashRt(refreshToken);
-    user.refreshTokens = user.refreshTokens.filter(t => t.token !== hash);
+    
+    // Remove refresh token
+    user.refreshTokens = user.refreshTokens.filter(t => t.token !== refreshToken);
     await user.save();
-
-    if (user.refreshTokens.length === before) {
-      return res.status(400).json({ error: 'Token not found' });
-    }
-
-    return res.json({ message: 'Logged out successfully' });
+    
+    res.json({ message: 'Logged out successfully' });
+    
   } catch (error) {
-    return res.status(400).json({ error: error.message });
+    res.status(400).json({ error: error.message });
   }
 };
 
-// ---- Get profile ----
-const getProfile = async (req, res) => {
+// Get profile
+exports.getProfile = async (req, res) => {
   try {
     const user = await User.findById(req.userId);
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    return res.json({
+    res.json({
       id: user._id,
       email: user.email,
       firstName: user.firstName,
@@ -180,8 +171,6 @@ const getProfile = async (req, res) => {
       profile: user.profile
     });
   } catch (error) {
-    return res.status(400).json({ error: error.message });
+    res.status(400).json({ error: error.message });
   }
 };
-
-export default { register, login, refreshToken, logout, getProfile };

@@ -1,6 +1,5 @@
-import { v2 as cloudinary } from 'cloudinary';
-import sharp from 'sharp';
-
+const cloudinary = require('cloudinary').v2;
+const sharp = require('sharp');
 
 // Configure Cloudinary
 cloudinary.config({
@@ -60,4 +59,4 @@ class ImageService {
   }
 }
 
-export default ImageService;
+module.exports = ImageService;

@@ -1,5 +1,5 @@
-import mongoose from 'mongoose';
-import bcrypt from 'bcryptjs';
+const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
 
 const userSchema = new mongoose.Schema({
   email: {
@@ -8,6 +8,10 @@ const userSchema = new mongoose.Schema({
     unique: true,
     lowercase: true,
     trim: true,
+    validate: {
+      validator: (email) => email.endsWith('@herts.ac.uk'),
+      message: 'Must use University of Hertfordshire email'
+    }
   },
   
   password: {
@@ -109,6 +113,4 @@ userSchema.methods.getRemainingListings = function() {
   return Math.max(0, this.tier.limits.activeListings - this.tier.usage.currentListings);
 };
 
-const User = mongoose.model('User', userSchema);
-
-export default User;
+module.exports = mongoose.model('User', userSchema);
