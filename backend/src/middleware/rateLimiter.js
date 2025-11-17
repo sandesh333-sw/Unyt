@@ -18,6 +18,7 @@ const premiumLimiter = new RateLimiterRedis({
   blockDuration: 0 // No blocking for premium
 });
 
+
 exports.rateLimiter = async (req, res, next) => {
   try {
     const tier = req.user?.tier?.plan || 'free';
@@ -32,3 +33,21 @@ exports.rateLimiter = async (req, res, next) => {
     });
   }
 };
+const rateLimiter = async ( req, res, next) => {
+    try {
+        const tier = req.user?.tier?.plan || 'free';
+        const limiter = tier === 'premium' ? premiumLimiter : freeLimiter;
+
+        await limiter.consume(req.ip);
+
+        next();
+        
+    } catch (error) {
+        res.status(429).json({
+            error: 'Too many requests',
+            message: 'Upgrade  to Premium for higher limits'
+        });
+    }
+};
+
+export default rateLimiter;
