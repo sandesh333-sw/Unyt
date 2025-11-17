@@ -1,92 +1,64 @@
-import 'dotenv/config';
-import express from 'express';
-import cors from 'cors';
-// import helmet from 'helmet';
-// import compression from 'compression';
-import connectDB from './src/config/database.js';
-
-import authRoutes from './src/routes/auth.js';
-//import listingsRoutes from './src/routes/listings.js';
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const helmet = require('helmet');
+const compression = require('compression');
+const connectDB = require('./src/config/database');
 
 const app = express();
 
-// Connect to MongoDB (fail fast if it can’t connect)
-try {
-  await connectDB();
-  console.log('✅ MongoDB connected');
-} catch (err) {
-  console.error('❌ Failed to connect to MongoDB:', err);
-  process.exit(1);
-}
+// Connect to MongoDB
+connectDB();
 
-// Basic middleware for testing
-// app.use(helmet());
-// app.use(compression());
-
-// CORS: open for local testing; tighten later via env
+// Middleware
+app.use(helmet());
+app.use(compression());
 app.use(cors({
-  origin: process.env.CLIENT_URL || true,
-  credentials: true,
+  origin: process.env.CLIENT_URL,
+  credentials: true
 }));
-
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Trust reverse proxy if you later sit behind one (safe to leave)
-app.set('trust proxy', 1);
-
 // Routes
-app.use('/api/auth', authRoutes);
-//app.use('/api/listings', listingsRoutes);
+app.use('/api/auth', require('./src/routes/auth'));
+app.use('/api/listings', require('./src/routes/listings'));
 
 // Health check
 app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
+    timestamp: new Date(),
+    uptime: process.uptime()
   });
 });
 
-// Error handling (keep last)
+// Error handling middleware
 app.use((err, req, res, next) => {
-  console.error(' Error:', err);
-  const status = err.status || 500;
-  res.status(status).json({
+  console.error(err.stack);
+  res.status(err.status || 500).json({
     error: err.message || 'Internal server error',
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack }),
+    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
   });
 });
 
 const PORT = process.env.PORT || 5000;
-const server = app.listen(PORT, () => {
-  console.log(` Server running on http://localhost:${PORT}`);
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
 
-// Graceful shutdowns
+// Handle uncaught exceptions
 process.on('uncaughtException', (err) => {
-  console.error('UNCAUGHT EXCEPTION ', err);
+  console.error('UNCAUGHT EXCEPTION! 💥 Shutting down...');
+  console.error(err.name, err.message);
   process.exit(1);
 });
 
 process.on('unhandledRejection', (err) => {
-  console.error('UNHANDLED REJECTION ', err);
-  server.close(() => process.exit(1));
+  console.error('UNHANDLED REJECTION! 💥 Shutting down...');
+  console.error(err.name, err.message);
+  server.close(() => {
+    process.exit(1);
+  });
 });
-
-process.on('SIGINT', () => {
-  console.log('👋 SIGINT received. Shutting down gracefully...');
-  server.close(() => process.exit(0));
-});
-
-process.on('SIGTERM', () => {
-  console.log('👋 SIGTERM received. Shutting down gracefully...');
-  server.close(() => process.exit(0));
-});
-
-
-// docker run -d \
-//   --name mongo \
-//   -p 27017:27017 \
-//   -v mongo-data:/data/db \
-//   mongo:7
