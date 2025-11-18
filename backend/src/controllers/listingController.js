@@ -30,6 +30,18 @@ exports.createListing = async (req, res) => {
       );
     }
     
+    // Parse type-specific data (comes as JSON string from FormData)
+    let typeSpecificData = {};
+    if (req.body[req.body.type]) {
+      try {
+        typeSpecificData = typeof req.body[req.body.type] === 'string' 
+          ? JSON.parse(req.body[req.body.type])
+          : req.body[req.body.type];
+      } catch (e) {
+        typeSpecificData = {};
+      }
+    }
+    
     // Create listing
     const listing = await Listing.create({
       owner: req.userId,
@@ -37,7 +49,7 @@ exports.createListing = async (req, res) => {
       title: req.body.title,
       description: req.body.description,
       images,
-      [req.body.type]: req.body[req.body.type], // housing/marketplace/buddy specific data
+      [req.body.type]: typeSpecificData, // housing/marketplace/buddy specific data
       visibility: {
         boost: user.tier.plan === 'premium' ? 1.5 : 1.0,
         priority: user.tier.plan === 'premium' ? 100 : 50

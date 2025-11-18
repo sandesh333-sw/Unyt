@@ -14,11 +14,12 @@ connectDB();
 app.use(helmet());
 app.use(compression());
 app.use(cors({
-  origin: process.env.CLIENT_URL,
+  origin: process.env.CLIENT_URL || 'http://localhost:5173',
   credentials: true
 }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Increase payload size limits for image uploads
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Routes
 app.use('/api/auth', require('./src/routes/auth'));
@@ -44,7 +45,7 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
 

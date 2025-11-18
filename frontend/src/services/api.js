@@ -7,13 +7,19 @@ class ApiService {
   }
   
   async request(endpoint, options = {}) {
+    const headers = {
+      ...options.headers,
+      ...(this.token && { Authorization: `Bearer ${this.token}` })
+    };
+    
+    // Only add Content-Type if not FormData (browser sets it for FormData)
+    if (!(options.body instanceof FormData)) {
+      headers['Content-Type'] = 'application/json';
+    }
+    
     const config = {
       ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers,
-        ...(this.token && { Authorization: `Bearer ${this.token}` })
-      }
+      headers
     };
     
     const response = await fetch(`${API_URL}${endpoint}`, config);
@@ -68,15 +74,41 @@ class ApiService {
     this.token = data.accessToken;
     localStorage.setItem('accessToken', data.accessToken);
     localStorage.setItem('refreshToken', data.refreshToken);
+    localStorage.setItem('user', JSON.stringify(data.user));
     
     return data;
   }
   
   async register(userData) {
-    return this.request('/auth/register', {
+    const data = await this.request('/auth/register', {
       method: 'POST',
       body: JSON.stringify(userData)
     });
+    
+    // Save tokens after registration
+    this.token = data.accessToken;
+    localStorage.setItem('accessToken', data.accessToken);
+    localStorage.setItem('refreshToken', data.refreshToken);
+    localStorage.setItem('user', JSON.stringify(data.user));
+    
+    return data;
+  }
+  
+  logout() {
+    this.token = null;
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
+    localStorage.removeItem('user');
+    window.location.href = '/login';
+  }
+  
+  isLoggedIn() {
+    return !!localStorage.getItem('accessToken');
+  }
+  
+  getCurrentUser() {
+    const user = localStorage.getItem('user');
+    return user ? JSON.parse(user) : null;
   }
   
   // Listings
@@ -87,17 +119,30 @@ class ApiService {
   
   async createListing(data) {
     const formData = new FormData();
-    Object.keys(data).forEach(key => {
-      if (key === 'images') {
-        data.images.forEach(img => formData.append('images', img));
-      } else {
-        formData.append(key, JSON.stringify(data[key]));
-      }
-    });
+    
+    // Add simple fields
+    formData.append('type', data.type);
+    formData.append('title', data.title);
+    formData.append('description', data.description);
+    
+    // Add type-specific data as JSON string
+    if (data.housing) {
+      formData.append('housing', JSON.stringify(data.housing));
+    }
+    if (data.marketplace) {
+      formData.append('marketplace', JSON.stringify(data.marketplace));
+    }
+    if (data.buddy) {
+      formData.append('buddy', JSON.stringify(data.buddy));
+    }
+    
+    // Add images
+    if (data.images && data.images.length > 0) {
+      data.images.forEach(img => formData.append('images', img));
+    }
     
     return this.request('/listings', {
       method: 'POST',
-      headers: {}, // Let browser set multipart headers
       body: formData
     });
   }
