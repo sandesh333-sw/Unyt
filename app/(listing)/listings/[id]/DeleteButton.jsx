@@ -13,7 +13,7 @@ const DeleteButton = ({listingId}) => {
     }
 
      try {
-      const res = await fetch(`/api/listing/${listingId}`, {
+      const res = await fetch(`/api/listings/${listingId}`, {
         method: 'DELETE',
       })
 
