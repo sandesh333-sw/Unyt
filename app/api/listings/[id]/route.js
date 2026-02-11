@@ -4,14 +4,50 @@ import connectDB from "@/app/lib/mongodb";
 import Listing from "@/app/models/Listing";
 import { geocodeLocation } from "@/app/lib/geocoding";
 import { cache } from "@/app/lib/redis";
+import { requireAuth } from "@/app/lib/authMiddleware";
+import { checkRateLimit } from "@/app/lib/rateLimiter";
+import { listingSchema, idSchema } from "@/app/lib/validations";
+import { sanitizeObject } from "@/app/lib/sanitize";
 
 
 // GET: Get single listing with caching
 export async function GET(request, { params }) {
   try {
+
+    // Rate limiting
+    const ip = request.headers.get('x-forwarded-for') || 'anonymous';
+    const rateLimitResult = await checkRateLimit(ip, 'api');
+
+    if (!rateLimitResult.allowed){
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Too many requests. Please try again later.',
+          retryAfter: rateLimitResult.retryAfter
+        }, 
+        {
+          status: 429,
+          headers: {
+            'Retry-After': rateLimitResult.retryAfter.toString(),
+          }
+        }
+      )
+    }
+
     await connectDB();
 
     const { id } = await params; 
+
+    // Validate ID
+    const idValidation = idSchema.safeParse(id);
+    if (!idValidation.success){
+      return NextResponse.json(
+        { success: false, error: 'Invalid listing ID'},
+        { status: 400 }
+      );
+    }
+
+
     const cacheKey = `listing:${id}`;
 
     // Try cache first
