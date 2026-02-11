@@ -4,14 +4,53 @@ import connectDB from "@/app/lib/mongodb";
 import Listing from "@/app/models/Listing";
 import { geocodeLocation } from "@/app/lib/geocoding";
 import { cache } from "@/app/lib/redis";
+import { requireAuth } from "@/app/lib/authMiddleware";
+import { checkRateLimit } from "@/app/lib/rateLimiter";
+import { listingSchema, searchQuerySchema } from "@/app/lib/validations";
+import { sanitizeObject } from "@/app/lib/sanitize";
 
-// GET -  All listings with optional search
+// GET -  All listings with optional search and caching
 export async function GET(request){
     try {
+        // Rate limiting
+        const ip = request.headers.get('x-forwarded-for') || 'anonymous';
+        const rateLimitResult = await checkRateLimit(ip, 'search');
+
+        if (!rateLimitResult.allowed){
+            return NextResponse.json(
+                { 
+                    success: false,
+                    error: 'Too many requests. Please try again',
+                    retryAfter: rateLimitResult.retryAfter
+                },
+                {
+                    status: 429,
+                    headers: {
+                        'Retry-After': rateLimitResult.retryAfter.toString(),
+                    }
+                }
+            );
+        }
+
         await connectDB();
 
         const { searchParams } = new URL(request.url);
-        const search = searchParams.get('search');
+        const searchQuery = searchParams.get('search');
+
+        // Validate search query
+        if (searchQuery){
+            const validation = searchQuerySchema.safeParse({search: searchQuery});
+
+            if (!validation.success){
+                return NextResponse.json(
+                    { success: false, error: validation.error.errors[0].message },
+                    { status: 400 }
+                );
+            }
+        }
+
+        // Sanitize search input 
+        const search = searchQuery ? sanitizeObject({search: searchQuery }).search : null;
 
         // Create cache key
         const cacheKey = search ? `listings:search:${search}`: 'listings:all';
@@ -31,6 +70,7 @@ export async function GET(request){
 
         console.log('Cache Miss', cacheKey);
 
+        // If not in cache, query database
         let query = {};
 
         if (search){
