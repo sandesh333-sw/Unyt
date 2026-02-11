@@ -8,7 +8,7 @@ const rateLimiters = {
         duration: 900, //15 minutes
     }),
 
-    // Create listing - 4 per hour
+    // Create listing - 2 per 24 hour
     createListing: new RateLimiterMemory({
         points: 2,
         duration: 86400,
@@ -16,7 +16,7 @@ const rateLimiters = {
 
     // Update/Delete - 5 per hour
     modifyListing: new RateLimiterMemory({
-        points: 20,
+        points: 5,
         duration: 3600,
     }),
 
