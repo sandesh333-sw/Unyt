@@ -92,18 +92,45 @@ export async function GET(request, { params }) {
 // PUT: Update listing
 export async function PUT(request, { params }){
   try {
-    const { userId } = await auth();
 
-    if(!userId){
+    // Check authenthication
+    const authResult = await requireAuth();
+    if (!authResult.authorized){
+      return authResult.response;
+    }
+
+    const { userId } = authResult;
+
+    // Rate limiting
+    const rateLimitResult = await checkRateLimit(userId, 'modifyListing');
+    if (!rateLimitResult.allowed){
       return NextResponse.json(
-        { success: false, error :'Unauthorized'},
-        { status : 401 }
+        { success: false,
+          error: 'Too many modifications. Please try again later.',
+          retryAfter: rateLimitResult.retryAfter
+        },
+        {
+          status: 429,
+          headers: {
+            'Retry-After': rateLimitResult.retryAfter.toString(),
+          }
+        }
       );
     }
 
     await connectDB();
 
     const { id } = await params;
+
+    // Validate ID
+    const isValidation = idSchema.safeParse(id);
+    if (!isValidation.success){
+      return NextResponse.json(
+        { success: false, error: 'Invalid listing ID'},
+        { status: 400 }
+      );
+    }
+
     const listing = await Listing.findById(id);
 
     if (!listing){
@@ -122,7 +149,26 @@ export async function PUT(request, { params }){
     }
 
     const body = await request.json();
-    const { title, description, location, country, price, imageUrl, imagePublicId } = body;
+
+    // Sanitize input
+    const sanitizedBody = sanitizeObject(body);
+
+    // Validate input
+    const validation = listingSchema.safeParse(sanitizedBody);
+
+    if (!validation.success){
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Validation failed',
+          details: validation.error.errors
+        }, {
+          status: 400
+        }
+      );
+    }
+
+    const { title, description, location, country, price, imageUrl, imagePublicId } = validation.data;
 
     // Geocode location if it changed
     let geometry = listing.geometry;
