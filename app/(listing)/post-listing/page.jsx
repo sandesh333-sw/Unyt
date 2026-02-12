@@ -12,7 +12,7 @@ const PostListing = () => {
   const { userId } = useAuth()
   const [loading, setLoading] = useState(false)
   const [imagePreview, setImagePreview] = useState(null)
-  
+
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -21,6 +21,35 @@ const PostListing = () => {
     price: '',
     imageUrl: '',
   })
+
+  const validateForm = () => {
+    const errors = [];
+
+    if (!formData.title || formData.title.trim().length < 5) {
+      errors.push('Title must be at least 5 characters');
+    }
+    if (!formData.description || formData.description.trim().length < 20) {
+      errors.push('Description must be at least 20 characters');
+    }
+    if (!formData.location || formData.location.trim().length < 2) {
+      errors.push('Location is required');
+    }
+    if (!formData.country || formData.country.trim().length < 2) {
+      errors.push('Country is required');
+    }
+    if (!formData.price || formData.price <= 0) {
+      errors.push('Price must be greater than 0');
+    }
+    if (formData.price > 1000000) {
+      errors.push('Price must be less than 1,000,000');
+    }
+    if (!formData.imageUrl) {
+      errors.push('Please upload an image');
+    }
+
+    return errors;
+  };
+
 
   const handleChange = (e) => {
     const { name, value } = e.target
@@ -44,8 +73,8 @@ const PostListing = () => {
     // Upload to Cloudinary
     const formData = new FormData()
     formData.append('file', file)
-    formData.append('upload_preset', 'unyt_main') 
-    
+    formData.append('upload_preset', 'unyt_main')
+
     try {
       const res = await fetch(
         `https://api.cloudinary.com/v1_1/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}/image/upload`,
@@ -54,7 +83,7 @@ const PostListing = () => {
           body: formData,
         }
       )
-      
+
       const data = await res.json()
       setFormData(prev => ({
         ...prev,
@@ -69,17 +98,17 @@ const PostListing = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    
+
     if (!userId) {
       toast.error('Please sign in to post a listing')
       return
     }
 
-    if (!formData.imageUrl) {
-      toast.error('Please upload an image')
-      return
+    const validationErrors = validateForm();
+    if (validationErrors.length > 0){
+      validationErrors.forEach(err => toast.error(err));
+      return;
     }
-
     setLoading(true)
 
     try {
@@ -114,7 +143,7 @@ const PostListing = () => {
   return (
     <div className='w-full bg-white py-12'>
       <div className='mx-auto max-w-3xl px-4 sm:px-6 lg:px-8'>
-        
+
         <div className='mb-8'>
           <h1 className='text-3xl sm:text-4xl font-bold text-gray-900 mb-2'>
             Post a Listing
@@ -125,7 +154,7 @@ const PostListing = () => {
         </div>
 
         <form onSubmit={handleSubmit} className='space-y-6 bg-white border border-gray-200 rounded-lg p-6 sm:p-8'>
-          
+
           {/* Title */}
           <div>
             <label htmlFor='title' className='block text-sm font-semibold text-gray-900 mb-2'>
@@ -218,7 +247,7 @@ const PostListing = () => {
             <label className='block text-sm font-semibold text-gray-900 mb-2'>
               Property Image
             </label>
-            
+
             <div className='border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors'>
               {imagePreview ? (
                 <div className='space-y-4'>

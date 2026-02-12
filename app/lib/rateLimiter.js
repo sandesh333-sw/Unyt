@@ -1,43 +1,45 @@
-import { RateLimiterMemory } from "rate-limiter-flexible";
+import { cache } from "./redis";
 
-// Create rate limiters for different operations
-const rateLimiters = {
-    // General API calls - 100 requests per 15 minutes
-    api: new RateLimiterMemory({
-        points: 100,
-        duration: 900, //15 minutes
-    }),
+async function checkRateLimit(identifier, type = 'api') {
+    const limits = {
+        api: { points: 50, duration: 900 }, // 50 req / 15 min
+        createListing: { points: 2, duration: 86400 }, // 2 req / 24 hour
+        modifyListing: { points: 10, duration: 3600 }, // 10 req / 1 hour
+        search: { points: 10, duration: 3600 },         // 10 req / 1 hour
+    };
 
-    // Create listing - 2 per 24 hour
-    createListing: new RateLimiterMemory({
-        points: 2,
-        duration: 86400,
-    }),
-
-    // Update/Delete - 5 per hour
-    modifyListing: new RateLimiterMemory({
-        points: 5,
-        duration: 3600,
-    }),
-
-    // Search - 50 per hour
-    search: new RateLimiterMemory({
-        points: 50,
-        duration: 300,
-    }),
-};
-
-export async function checkRateLimit(identifier, type='api'){
-    const limiter = rateLimiters[type] || rateLimiters.api;
+    const limit = limits[type] || limits.api;
+    const key = `ratelimit:${type}:${identifier}`;
 
     try {
-    await limiter.consume(identifier);
-    return { allowed: true };
-        
+
+        // Get current count from Redis
+        const current = await cache.get(key);
+
+        if (!current) {
+            // First request - set count to 1 with expiry
+            await cache.set(key, { count: 1, firstRequest: Date.now() }, limit.duration);
+            return { allowed: true, remaining: limit.points - 1 };
+        }
+
+        if (current.count >= limit.points) {
+            // Get TTL to tell client when to retry
+            return {
+                allowed: false,
+                retryAfter: limit.duration,
+            };
+        }
+
+        // Increment count
+        await cache.set(key, { ...current, count: current.count + 1 }, limit.duration);
+        return { allowed: true, remaining: limit.points - current.count - 1 };
+
+
     } catch (error) {
-        return {
-            allowed: false,
-            retryAfter: Math.round(error.msBeforeNext / 1000) || 60,
-        };
+        // If redis is down, fail open (allow request) to avoid blocking users
+        console.error('Rate limiter error:', error);
+        return { allowed: true };
     }
 }
+
+export { checkRateLimit };
