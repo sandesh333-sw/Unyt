@@ -15,7 +15,7 @@ async function connectDB() {
     // Check if we're in build mode
     if (process.env.NODE_ENV === 'production' && !process.env.MONGODB_URI) {
       console.warn('⚠️  MONGODB_URI not set - database calls will fail at runtime');
-      // Return a mock connection object to allow build to continue
+      
       return null;
     }
     throw new Error("Please define MONGODB_URI environment variable");
