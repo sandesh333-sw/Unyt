@@ -7,17 +7,15 @@ if (!cached) {
 }
 
 async function connectDB() {
+  // Skip database connection during build
+  if (process.env.NEXT_PHASE === 'phase-production-build') {
+    console.log('📦 Build mode detected - skipping database connection');
+    return null;
+  }
+
   const mongo = process.env.MONGODB_URI;
 
-  // During build time, env vars might not be available
-  // Only throw at runtime when actually trying to connect
   if (!mongo) {
-    // Check if we're in build mode
-    if (process.env.NODE_ENV === 'production' && !process.env.MONGODB_URI) {
-      console.warn('⚠️  MONGODB_URI not set - database calls will fail at runtime');
-      
-      return null;
-    }
     throw new Error("Please define MONGODB_URI environment variable");
   }
 
