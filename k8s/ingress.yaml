@@ -1,0 +1,15 @@
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: unyt-app-ingress 
+  namespace: unyt
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`unyt.pulami.co.uk`)
+      kind: Rule
+      services:
+        - name: unyt-app-service 
+          port: 80
+
