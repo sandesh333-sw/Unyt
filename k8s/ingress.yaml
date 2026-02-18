@@ -1,15 +1,19 @@
-apiVersion: traefik.containo.us/v1alpha1
-kind: IngressRoute
+apiVersion: networking.k8s.io/v1
+kind: Ingress
 metadata:
-  name: unyt-app-ingress 
+  name: unyt-app-ingress
   namespace: unyt
+  annotations:
+    kubernetes.io/ingress.class: traefik
 spec:
-  entryPoints:
-    - web
-  routes:
-    - match: Host(`unyt.pulami.co.uk`)
-      kind: Rule
-      services:
-        - name: unyt-app-service 
-          port: 80
-
+  rules:
+    - host: unyt.pulami.co.uk
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: unyt-app-service
+                port:
+                  number: 80
