@@ -1,6 +1,5 @@
 import mongoose from "mongoose";
 
-// No top-level throw — module loads safely during build
 let cached = global.mongoose;
 
 if (!cached) {
@@ -8,9 +7,14 @@ if (!cached) {
 }
 
 async function connectDB() {
+  // Skip database connection during build
+  if (process.env.NEXT_PHASE === 'phase-production-build') {
+    console.log('📦 Build mode detected - skipping database connection');
+    return null;
+  }
+
   const mongo = process.env.MONGODB_URI;
 
-  //   This only runs at runtime, when a route actually calls connectDB()
   if (!mongo) {
     throw new Error("Please define MONGODB_URI environment variable");
   }

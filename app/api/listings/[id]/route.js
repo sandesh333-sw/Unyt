@@ -9,6 +9,10 @@ import { checkRateLimit } from "@/app/lib/rateLimiter";
 import { listingSchema, idSchema } from "@/app/lib/validations";
 import { sanitizeObject } from "@/app/lib/sanitize";
 
+// Prevent static optimization - this is a dynamic API route
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 
 // GET: Get single listing with caching
 export async function GET(request, { params }) {
