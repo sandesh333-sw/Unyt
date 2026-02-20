@@ -5,7 +5,7 @@ on:
     branches: [main]
 
 permissions:
-    contents: write
+  contents: write
 
 env:
   IMAGE: pulami/unyt
@@ -41,8 +41,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # needed to read all git tags
+          fetch-depth: 0
 
+      # VERSIONING
       - name: Bump patch version from latest tag
         id: version
         run: |
@@ -63,16 +64,26 @@ jobs:
           git tag v${{ steps.version.outputs.version }}
           git push --tags
 
+      # DOCKER LOGIN
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      # DOCKER BUILD + PUSH WITH BUILD ARGS
       - name: Build & push image (versioned + latest)
         run: |
           VERSION=${{ steps.version.outputs.version }}
-          docker build -t ${{ env.IMAGE }}:$VERSION -t ${{ env.IMAGE }}:latest .
+
+          docker build \
+            --build-arg NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }} \
+            --build-arg NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME=${{ secrets.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME }} \
+            --build-arg NEXT_PUBLIC_MAPBOX_TOKEN=${{ secrets.NEXT_PUBLIC_MAPBOX_TOKEN }} \
+            --build-arg NEXT_PUBLIC_BASE_URL=${{ secrets.NEXT_PUBLIC_BASE_URL }} \
+            -t ${{ env.IMAGE }}:$VERSION \
+            -t ${{ env.IMAGE }}:latest .
+
           docker push ${{ env.IMAGE }}:$VERSION
           docker push ${{ env.IMAGE }}:latest
 
