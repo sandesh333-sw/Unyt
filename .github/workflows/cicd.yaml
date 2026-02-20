@@ -1,0 +1,100 @@
+name: Unyt CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+
+env:
+  IMAGE: pulami/unyt
+  DEPLOYMENT: unyt-app
+  NAMESPACE: unyt
+
+jobs:
+  # ─── 1. TEST ───────────────────────────────────────────────────────────────
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - run: npm ci
+      - run: npm test --if-present
+        env:
+          CI: true
+
+  # ─── 2. VERSION + BUILD + PUSH ─────────────────────────────────────────────
+  build-and-push:
+    name: Version, Build & Push
+    needs: test
+    runs-on: [self-hosted]
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # needed to read all git tags
+
+      - name: Bump patch version from latest tag
+        id: version
+        run: |
+          LAST=$(git tag --sort=-v:refname | head -n 1)
+          if [ -z "$LAST" ]; then
+            VERSION="1.0.0"
+          else
+            IFS='.' read -r major minor patch <<< "${LAST#v}"
+            VERSION="$major.$minor.$((patch + 1))"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Next version: $VERSION"
+
+      - name: Tag commit
+        run: |
+          git config user.name  "github-actions"
+          git config user.email "actions@github.com"
+          git tag v${{ steps.version.outputs.version }}
+          git push --tags
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build & push image (versioned + latest)
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          docker build -t ${{ env.IMAGE }}:$VERSION -t ${{ env.IMAGE }}:latest .
+          docker push ${{ env.IMAGE }}:$VERSION
+          docker push ${{ env.IMAGE }}:latest
+
+  # ─── 3. DEPLOY ─────────────────────────────────────────────────────────────
+  deploy:
+    name: Deploy to k3s
+    needs: build-and-push
+    runs-on: [self-hosted]
+
+    steps:
+      - name: Rollout new version (auto-rollback on failure)
+        env:
+          VERSION: ${{ needs.build-and-push.outputs.version }}
+        run: |
+          echo "▶ Deploying ${{ env.IMAGE }}:$VERSION..."
+
+          kubectl set image deployment/${{ env.DEPLOYMENT }} \
+            ${{ env.DEPLOYMENT }}=${{ env.IMAGE }}:$VERSION \
+            -n ${{ env.NAMESPACE }}
+
+          if kubectl rollout status deployment/${{ env.DEPLOYMENT }} \
+               -n ${{ env.NAMESPACE }} --timeout=60s; then
+            echo "✅ Deployment successful: v$VERSION"
+          else
+            echo "❌ Rollout failed — reverting to previous version"
+            kubectl rollout undo deployment/${{ env.DEPLOYMENT }} -n ${{ env.NAMESPACE }}
+            exit 1
+          fi
