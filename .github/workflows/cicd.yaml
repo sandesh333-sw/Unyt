@@ -76,7 +76,7 @@ jobs:
           docker push ${{ env.IMAGE }}:$VERSION
           docker push ${{ env.IMAGE }}:latest
 
-  # ─── 3. DEPLOY ─────────────────────────────────────────────────────────────
+  # ─── 3. DEPLOYY ─────────────────────────────────────────────────────────────
   deploy:
     name: Deploy to k3s
     needs: build-and-push
