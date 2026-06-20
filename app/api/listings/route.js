@@ -1,19 +1,23 @@
 import { NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
-import connectDB from "@/app/lib/mongodb";
 import Listing from "@/app/models/Listing";
+import connectDB from "@/app/lib/mongodb";
 import { geocodeLocation } from "@/app/lib/geocoding";
 import { cache } from "@/app/lib/redis";
+import { getListings } from "@/app/lib/listings";
 import { requireAuth } from "@/app/lib/authMiddleware";
 import { checkRateLimit } from "@/app/lib/rateLimiter";
-import { listingSchema, searchQuerySchema } from "@/app/lib/validations";
-import { sanitizeObject } from "@/app/lib/sanitize";
+import { listingSchema, searchQuerySchema, paginationSchema } from "@/app/lib/validations";
+import { sanitizeFields } from "@/app/lib/sanitize";
+
+// Free-text fields that get HTML-sanitized before storage. Image URLs and
+// numeric/array fields are validated by Zod, not escaped.
+const TEXT_FIELDS = ['title', 'description', 'location', 'country'];
 
 // Prevent static optimization - making dynamic API route
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-// GET -  All listings with optional search and caching
+// GET -  Paginated listings with optional search (cached via lib/listings)
 export async function GET(request) {
     try {
         // Rate limiting
@@ -36,8 +40,6 @@ export async function GET(request) {
             );
         }
 
-        await connectDB();
-
         const { searchParams } = new URL(request.url);
         const searchQuery = searchParams.get('search');
 
@@ -53,50 +55,24 @@ export async function GET(request) {
             }
         }
 
-        // Sanitize search input 
-        const search = searchQuery ? sanitizeObject({ search: searchQuery }).search : null;
+        // Parse pagination (?page, ?limit) — invalid values fall back to defaults.
+        const { page, limit } = paginationSchema.parse({
+            page: searchParams.get('page'),
+            limit: searchParams.get('limit'),
+        });
 
-        // Create cache key
-        const cacheKey = search ? `listings:search:${search}` : 'listings:all';
-
-        // Try to get from cache first
-        const cachedData = await cache.get(cacheKey);
-
-        if (cachedData) {
-            console.log('Cache HIT:', cacheKey);
-
-            return NextResponse.json({
-                success: true,
-                data: cachedData,
-                cached: true
-            }, { status: 200 });
-        }
-
-        console.log('Cache Miss', cacheKey);
-
-        // If not in cache, query database
-        let query = {};
-
-        if (search) {
-            query = {
-                $or: [
-                    { title: { $regex: search, $options: 'i' } },
-                    { description: { $regex: search, $options: 'i' } },
-                    { location: { $regex: search, $options: 'i' } },
-                    { country: { $regex: search, $options: 'i' } },
-                ]
-            };
-        }
-
-        const listings = await Listing.find(query).sort({ createdAt: -1 });
-
-        // Cache the results for 5 minutes (300 seconds)
-        await cache.set(cacheKey, listings, 300);
+        const result = await getListings({ search: searchQuery || '', page, limit });
 
         return NextResponse.json({
             success: true,
-            data: listings,
-            cached: false
+            data: result.listings,
+            pagination: {
+                page: result.page,
+                limit: result.limit,
+                total: result.total,
+                totalPages: result.totalPages,
+                hasMore: result.hasMore,
+            },
         }, { status: 200 });
     } catch (error) {
         console.error('Error fetching listings: ', error);
@@ -142,11 +118,10 @@ export async function POST(request) {
 
         const body = await request.json();
 
-        // Sanitize input
-        const sanitizedBody = sanitizeObject(body);
-
-        // Validate input
-        const validation = listingSchema.safeParse(sanitizedBody);
+        // Validate first (also enforces Cloudinary image URLs), then sanitize the
+        // free-text fields. We deliberately don't escape the whole body — that
+        // would corrupt the image URLs.
+        const validation = listingSchema.safeParse(body);
         if (!validation.success){
             return NextResponse.json(
                 {
@@ -158,10 +133,11 @@ export async function POST(request) {
             );
         }
 
-        const { title, description, location, country, price, imageUrl, imagePublicId } = validation.data;
+        const clean = sanitizeFields(validation.data, TEXT_FIELDS);
+        const { title, description, location, country, price, images } = clean;
 
-        // Geocode the location
-        const geometry = await geocodeLocation(location);
+        // Geocode using the raw (un-escaped) location for accuracy.
+        const geometry = await geocodeLocation(validation.data.location);
 
         const newListing = await Listing.create({
             title,
@@ -169,8 +145,7 @@ export async function POST(request) {
             location,
             country,
             price,
-            imageUrl,
-            imagePublicId,
+            images,
             owner: userId,
             geometry,
         });

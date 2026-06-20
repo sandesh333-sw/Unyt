@@ -3,11 +3,12 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@clerk/nextjs'
-import { Upload, ArrowLeft } from 'lucide-react'
+import { ArrowLeft } from 'lucide-react'
 import toast from 'react-hot-toast'
-import Image from 'next/image'
 import Link from 'next/link'
 import { use } from 'react'
+import MultiImageUploader from '@/app/components/MultiImageUploader'
+import { normalizeListingImages } from '@/app/lib/images'
 
 const EditListing = ({ params }) => {
   const { id } = use(params)
@@ -15,15 +16,14 @@ const EditListing = ({ params }) => {
   const { userId } = useAuth()
   const [loading, setLoading] = useState(false)
   const [fetching, setFetching] = useState(true)
-  const [imagePreview, setImagePreview] = useState(null)
-  
+
   const [formData, setFormData] = useState({
     title: '',
     description: '',
     location: '',
     country: '',
     price: '',
-    imageUrl: '',
+    images: [],
   })
 
   useEffect(() => {
@@ -48,9 +48,8 @@ const EditListing = ({ params }) => {
             location: listing.location,
             country: listing.country,
             price: listing.price.toString(),
-            imageUrl: listing.imageUrl,
+            images: normalizeListingImages(listing),
           })
-          setImagePreview(listing.imageUrl)
         } else {
           toast.error('Listing not found')
           router.push('/listings')
@@ -76,45 +75,18 @@ const EditListing = ({ params }) => {
     }))
   }
 
-  const handleImageUpload = async (e) => {
-    const file = e.target.files[0]
-    if (!file) return
-
-    // Create preview
-    const reader = new FileReader()
-    reader.onloadend = () => {
-      setImagePreview(reader.result)
-    }
-    reader.readAsDataURL(file)
-
-    // Upload to Cloudinary
-    const uploadData = new FormData()
-    uploadData.append('file', file)
-    uploadData.append('upload_preset', 'your_upload_preset')
-    
-    try {
-      const res = await fetch(
-        `https://api.cloudinary.com/v1_1/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}/image/upload`,
-        {
-          method: 'POST',
-          body: uploadData,
-        }
-      )
-      
-      const data = await res.json()
-      setFormData(prev => ({
-        ...prev,
-        imageUrl: data.secure_url,
-      }))
-      toast.success('Image uploaded successfully')
-    } catch (error) {
-      console.error('Error uploading image:', error)
-      toast.error('Failed to upload image')
-    }
+  const handleImagesChange = (images) => {
+    setFormData(prev => ({ ...prev, images }))
   }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+
+    if (formData.images.length === 0) {
+      toast.error('Please upload at least one image')
+      return
+    }
+
     setLoading(true)
 
     try {
@@ -261,35 +233,15 @@ const EditListing = ({ params }) => {
             />
           </div>
 
-          {/* Image Upload */}
+          {/* Images */}
           <div>
             <label className='block text-sm font-semibold text-gray-900 mb-2'>
-              Property Image
+              Property Images
             </label>
-            
-            <div className='border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors'>
-              {imagePreview && (
-                <div className='space-y-4'>
-                  <div className='relative w-full h-64'>
-                    <Image
-                      src={imagePreview}
-                      alt='Preview'
-                      fill
-                      className='object-cover rounded-md'
-                    />
-                  </div>
-                  <label className='cursor-pointer inline-block px-4 py-2 bg-gray-100 text-gray-900 rounded-md hover:bg-gray-200 transition-colors'>
-                    Change Image
-                    <input
-                      type='file'
-                      accept='image/*'
-                      onChange={handleImageUpload}
-                      className='hidden'
-                    />
-                  </label>
-                </div>
-              )}
-            </div>
+            <MultiImageUploader
+              value={formData.images}
+              onChange={handleImagesChange}
+            />
           </div>
 
           {/* Submit Button */}

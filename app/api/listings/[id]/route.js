@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { auth } from '@clerk/nextjs/server';
 import connectDB from "@/app/lib/mongodb";
 import Listing from "@/app/models/Listing";
 import { geocodeLocation } from "@/app/lib/geocoding";
@@ -7,7 +6,12 @@ import { cache } from "@/app/lib/redis";
 import { requireAuth } from "@/app/lib/authMiddleware";
 import { checkRateLimit } from "@/app/lib/rateLimiter";
 import { listingSchema, idSchema } from "@/app/lib/validations";
-import { sanitizeObject } from "@/app/lib/sanitize";
+import { sanitizeFields } from "@/app/lib/sanitize";
+import { normalizeListingImages } from "@/app/lib/images";
+import { deleteImages } from "@/app/lib/cloudinary";
+
+// Free-text fields that get HTML-sanitized before storage.
+const TEXT_FIELDS = ['title', 'description', 'location', 'country'];
 
 // Prevent static optimization - this is a dynamic API route
 export const dynamic = 'force-dynamic';
@@ -155,11 +159,8 @@ export async function PUT(request, { params }) {
 
     const body = await request.json();
 
-    // Sanitize input
-    const sanitizedBody = sanitizeObject(body);
-
-    // Validate input
-    const validation = listingSchema.safeParse(sanitizedBody);
+    // Validate first (enforces Cloudinary image URLs), then sanitize free text.
+    const validation = listingSchema.safeParse(body);
 
     if (!validation.success) {
       return NextResponse.json(
@@ -173,13 +174,21 @@ export async function PUT(request, { params }) {
       );
     }
 
-    const { title, description, location, country, price, imageUrl, imagePublicId } = validation.data;
+    const clean = sanitizeFields(validation.data, TEXT_FIELDS);
+    const { title, description, location, country, price, images } = clean;
 
-    // Geocode location if it changed
+    // Geocode (using the raw location) only if it actually changed.
     let geometry = listing.geometry;
-    if (location !== listing.location) {
-      geometry = await geocodeLocation(location);
+    if (clean.location !== listing.location) {
+      geometry = await geocodeLocation(validation.data.location);
     }
+
+    // Work out which previously-stored images the user removed, so we can clean
+    // them up in Cloudinary after the DB write succeeds.
+    const keptIds = new Set(images.map((img) => img.publicId).filter(Boolean));
+    const removedPublicIds = normalizeListingImages(listing)
+      .map((img) => img.publicId)
+      .filter((publicId) => publicId && !keptIds.has(publicId));
 
     const updatedListing = await Listing.findByIdAndUpdate(
       id,
@@ -189,14 +198,16 @@ export async function PUT(request, { params }) {
         location,
         country,
         price,
-        imageUrl,
-        imagePublicId,
+        images,
         geometry,
       },
       { new: true, runValidators: true }
     );
 
-    await cache.del(`listings:${id}`);
+    // Best-effort: remove orphaned images (never blocks the response on failure).
+    await deleteImages(removedPublicIds);
+
+    await cache.del(`listing:${id}`);
     await cache.delPattern('listings:*');
 
     return NextResponse.json(
@@ -274,30 +285,18 @@ export async function DELETE(request, { params }) {
       );
     }
 
-    // Delete image from Cloudinary if exists
-    if (listing.imagePublicId) {
-      try {
-        const cloudinary = require('cloudinary').v2;
-        
-        cloudinary.config({
-          cloud_name: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,
-          api_key: process.env.CLOUDINARY_API_KEY,
-          api_secret: process.env.CLOUDINARY_API_SECRET,
-        });
-
-        await cloudinary.uploader.destroy(listing.imagePublicId);
-        console.log('Cloudinary image deleted:', listing.imagePublicId);
-      } catch (cloudinaryError) {
-        console.error('Cloudinary deletion error:', cloudinaryError);
-        // Continue with listing deletion even if image deletion fails
-      }
-    }
-
+    // Remove every image (gallery + any legacy single image) from Cloudinary.
+    // Best-effort: deleteImages never throws, so a Cloudinary hiccup won't block
+    // deleting the listing itself.
+    const publicIds = normalizeListingImages(listing)
+      .map((img) => img.publicId)
+      .filter(Boolean);
+    await deleteImages(publicIds);
 
     await Listing.findByIdAndDelete(id);
 
     // Invalidate cache
-    await cache.del(`lisings:${id}`);
+    await cache.del(`listing:${id}`);
     await cache.delPattern('listings:*');
 
     return NextResponse.json(

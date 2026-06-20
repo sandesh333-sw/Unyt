@@ -62,14 +62,26 @@ export const cache = {
     async delPattern(pattern){
         if (!redis) return false;
         try {
-            const keys = await redis.keys(pattern);
-            if(keys.length > 0){
-                await redis.del(...keys);
-            }
+            // Use SCAN instead of KEYS: KEYS is O(N) and blocks the whole Redis
+            // server while it walks every key. SCAN iterates in small batches so
+            // other clients aren't stalled. UNLINK frees the keys on a background
+            // thread (non-blocking), falling back to DEL on older servers.
+            let cursor = '0';
+            do {
+                const [next, keys] = await redis.scan(
+                    cursor,
+                    'MATCH', pattern,
+                    'COUNT', 100
+                );
+                cursor = next;
+                if (keys.length > 0){
+                    await redis.unlink(...keys);
+                }
+            } while (cursor !== '0');
             return true;
         } catch (error) {
          console.error('Redis DEL PATTERN error:', error);
-         return false;   
+         return false;
         }
     },
 };
