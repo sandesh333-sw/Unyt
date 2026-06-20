@@ -3,15 +3,13 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@clerk/nextjs'
-import { Upload } from 'lucide-react'
 import toast from 'react-hot-toast'
-import Image from 'next/image'
+import MultiImageUploader from '@/app/components/MultiImageUploader'
 
 const PostListing = () => {
   const router = useRouter()
   const { userId } = useAuth()
   const [loading, setLoading] = useState(false)
-  const [imagePreview, setImagePreview] = useState(null)
 
   const [formData, setFormData] = useState({
     title: '',
@@ -19,7 +17,7 @@ const PostListing = () => {
     location: '',
     country: '',
     price: '',
-    imageUrl: '',
+    images: [],
   })
 
   const validateForm = () => {
@@ -43,8 +41,8 @@ const PostListing = () => {
     if (formData.price > 1000000) {
       errors.push('Price must be less than 1,000,000');
     }
-    if (!formData.imageUrl) {
-      errors.push('Please upload an image');
+    if (formData.images.length === 0) {
+      errors.push('Please upload at least one image');
     }
 
     return errors;
@@ -59,41 +57,8 @@ const PostListing = () => {
     }))
   }
 
-  const handleImageUpload = async (e) => {
-    const file = e.target.files[0]
-    if (!file) return
-
-    // Create preview
-    const reader = new FileReader()
-    reader.onloadend = () => {
-      setImagePreview(reader.result)
-    }
-    reader.readAsDataURL(file)
-
-    // Upload to Cloudinary
-    const formData = new FormData()
-    formData.append('file', file)
-    formData.append('upload_preset', 'unyt_main')
-
-    try {
-      const res = await fetch(
-        `https://api.cloudinary.com/v1_1/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}/image/upload`,
-        {
-          method: 'POST',
-          body: formData,
-        }
-      )
-
-      const data = await res.json()
-      setFormData(prev => ({
-        ...prev,
-        imageUrl: data.secure_url,
-      }))
-      toast.success('Image uploaded successfully')
-    } catch (error) {
-      console.error('Error uploading image:', error)
-      toast.error('Failed to upload image')
-    }
+  const handleImagesChange = (images) => {
+    setFormData(prev => ({ ...prev, images }))
   }
 
   const handleSubmit = async (e) => {
@@ -242,47 +207,15 @@ const PostListing = () => {
             />
           </div>
 
-          {/* Image Upload */}
+          {/* Images */}
           <div>
             <label className='block text-sm font-semibold text-gray-900 mb-2'>
-              Property Image
+              Property Images
             </label>
-
-            <div className='border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors'>
-              {imagePreview ? (
-                <div className='space-y-4'>
-                  <div className='relative w-full h-64'>
-                    <Image
-                      src={imagePreview}
-                      alt='Preview'
-                      fill
-                      className='object-cover rounded-md'
-                    />
-                  </div>
-                  <label className='cursor-pointer inline-block px-4 py-2 bg-gray-100 text-gray-900 rounded-md hover:bg-gray-200 transition-colors'>
-                    Change Image
-                    <input
-                      type='file'
-                      accept='image/*'
-                      onChange={handleImageUpload}
-                      className='hidden'
-                    />
-                  </label>
-                </div>
-              ) : (
-                <label className='cursor-pointer block'>
-                  <Upload className='mx-auto h-12 w-12 text-gray-400 mb-2' />
-                  <span className='text-gray-600'>Click to upload an image</span>
-                  <input
-                    type='file'
-                    accept='image/*'
-                    onChange={handleImageUpload}
-                    className='hidden'
-                    required
-                  />
-                </label>
-              )}
-            </div>
+            <MultiImageUploader
+              value={formData.images}
+              onChange={handleImagesChange}
+            />
           </div>
 
           {/* Submit Button */}

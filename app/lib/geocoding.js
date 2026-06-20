@@ -23,17 +23,16 @@ export async function geocodeLocation(location){
 
         const data = await response.json();
 
-        if (data.features && data.features.length > 0){
-            return {
-                type: 'Point',
-                coordinates: data.features[0].geometry.coordinates, // [lng, lat]
-            };
-        } else {
-            geometry = {
-                type: 'Point',
-                coordinates: [0, 0],
-            };
-        }
+        const geometry =
+            data.features && data.features.length > 0
+                ? {
+                      type: 'Point',
+                      coordinates: data.features[0].geometry.coordinates, // [lng, lat]
+                  }
+                : {
+                      type: 'Point',
+                      coordinates: [0, 0],
+                  };
 
         // Cache geocoding result for 30 days (2592000 seconds)
         await cache.set(cacheKey, geometry, 2592000);
